@@ -10,20 +10,20 @@ const Navbar = () => {
       <div className="civic-container flex h-16 items-center justify-between">
         <div className="flex items-center space-x-2">
           <Vote className="h-6 w-6 text-civic-skyblue" />
-          <Link to="/" className="font-bold text-xl">CivicSimplified</Link>
+          <Link to="/" className="font-bold text-xl">Civic</Link>
         </div>
         <nav className="hidden md:flex items-center space-x-6">
           <Link to="/" className="text-sm font-medium hover:text-civic-skyblue transition-colors">Home</Link>
-          <Link to="/voter-info" className="text-sm font-medium hover:text-civic-skyblue transition-colors">Voter Info</Link>
+          <Link to="/check-registration" className="text-sm font-medium hover:text-civic-skyblue transition-colors">Check Registration</Link>
+          <Link to="/register-to-vote" className="text-sm font-medium hover:text-civic-skyblue transition-colors">Register to Vote</Link>
           <Link to="/elections" className="text-sm font-medium hover:text-civic-skyblue transition-colors">Elections</Link>
-          <Link to="/candidates" className="text-sm font-medium hover:text-civic-skyblue transition-colors">Candidates</Link>
         </nav>
         <div className="flex items-center space-x-4">
           <Button asChild variant="ghost" className="hidden md:inline-flex">
             <Link to="/about">About</Link>
           </Button>
           <Button asChild className="bg-civic-skyblue hover:bg-civic-skyblue/90">
-            <Link to="/voter-info">Check Registration</Link>
+            <Link to="/check-registration">Check Registration</Link>
           </Button>
         </div>
       </div>

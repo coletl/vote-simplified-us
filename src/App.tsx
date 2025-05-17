@@ -11,6 +11,8 @@ import Candidates from "./pages/Candidates";
 import About from "./pages/About";
 import NotFound from "./pages/NotFound";
 import Auth from "./pages/Auth";
+import CheckRegistration from "./pages/CheckRegistration";
+import RegisterToVote from "./pages/RegisterToVote";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +29,8 @@ const App = () => (
           <Route path="/candidates" element={<Candidates />} />
           <Route path="/about" element={<About />} />
           <Route path="/auth" element={<Auth />} />
+          <Route path="/check-registration" element={<CheckRegistration />} />
+          <Route path="/register-to-vote" element={<RegisterToVote />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
