@@ -9,8 +9,27 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Layout from '@/components/layout/Layout';
 
+// Define race type to include optional isBallotMeasure property
+interface Race {
+  id: string;
+  title: string;
+  candidates: number;
+  isBallotMeasure?: boolean;
+}
+
+// Define election type
+interface Election {
+  id: string;
+  title: string;
+  date: string;
+  level: "federal" | "state" | "local";
+  description: string;
+  type: "general" | "primary" | "special";
+  races: Race[];
+}
+
 // Mock election data
-const ELECTIONS = [
+const ELECTIONS: Election[] = [
   {
     id: "1",
     title: "Federal General Election",

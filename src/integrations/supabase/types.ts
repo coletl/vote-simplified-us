@@ -9,7 +9,42 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      user_districts: {
+        Row: {
+          congressional_district: string | null
+          county: string | null
+          created_at: string | null
+          id: string
+          municipal: string | null
+          school_board: string | null
+          state_district: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          congressional_district?: string | null
+          county?: string | null
+          created_at?: string | null
+          id?: string
+          municipal?: string | null
+          school_board?: string | null
+          state_district?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          congressional_district?: string | null
+          county?: string | null
+          created_at?: string | null
+          id?: string
+          municipal?: string | null
+          school_board?: string | null
+          state_district?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
