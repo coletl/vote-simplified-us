@@ -10,7 +10,7 @@ const Navbar = () => {
       <div className="civic-container flex h-16 items-center justify-between">
         <div className="flex items-center space-x-2">
           <Vote className="h-6 w-6 text-civic-skyblue" />
-          <Link to="/" className="font-bold text-xl">Civic</Link>
+          <Link to="/" className="font-bold text-xl">CivicSimple</Link>
         </div>
         <nav className="hidden md:flex items-center space-x-6">
           <Link to="/" className="text-sm font-medium hover:text-civic-skyblue transition-colors">Home</Link>
@@ -22,7 +22,7 @@ const Navbar = () => {
           <Button asChild variant="ghost" className="hidden md:inline-flex">
             <Link to="/about">About</Link>
           </Button>
-          <Button asChild className="bg-civic-skyblue hover:bg-civic-skyblue/90">
+          <Button asChild className="bg-civic-skyblue hover:bg-civic-skyblue/90 text-white">
             <Link to="/check-registration">Check Registration</Link>
           </Button>
         </div>

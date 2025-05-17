@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import Layout from '@/components/layout/Layout';
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,7 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Calendar } from 'lucide-react';
 import { toast } from "@/hooks/use-toast";
 
 // State registration verification websites
@@ -81,8 +80,64 @@ const stateRegistrationUrls = {
   MP: "https://www.votecnmi.gov.mp/"
 };
 
+// Registration deadlines by state (example data - would need to be updated with real data)
+const stateDeadlines = {
+  AL: { registration: "15 days before Election Day", early: "14 days before Election Day", absentee: "5 days before Election Day" },
+  AK: { registration: "30 days before Election Day", early: "15 days before Election Day", absentee: "10 days before Election Day" },
+  AZ: { registration: "29 days before Election Day", early: "27 days before Election Day", absentee: "11 days before Election Day" },
+  // Add for all states...
+  CA: { registration: "15 days before Election Day, or same-day registration available", early: "Varies by county", absentee: "7 days before Election Day" },
+  // ... other states would be filled in with real data
+};
+
+// Calculate actual dates for the next election (example using 2024 general election)
+const getElectionDates = (state: string) => {
+  // Next major election: November 5, 2024 (General Election)
+  const electionDate = new Date(2024, 10, 5); // November 5, 2024
+  
+  if (!state || !stateDeadlines[state as keyof typeof stateDeadlines]) {
+    return null;
+  }
+  
+  const deadlines = stateDeadlines[state as keyof typeof stateDeadlines];
+  const dates: Record<string, string> = {};
+  
+  // Calculate registration deadline
+  if (deadlines.registration.includes("days")) {
+    const days = parseInt(deadlines.registration.match(/\d+/)?.[0] || "0");
+    const regDeadline = new Date(electionDate);
+    regDeadline.setDate(regDeadline.getDate() - days);
+    dates.registration = regDeadline.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  } else {
+    dates.registration = deadlines.registration;
+  }
+  
+  // Calculate early voting deadline
+  if (deadlines.early.includes("days")) {
+    const days = parseInt(deadlines.early.match(/\d+/)?.[0] || "0");
+    const earlyDeadline = new Date(electionDate);
+    earlyDeadline.setDate(earlyDeadline.getDate() - days);
+    dates.early = earlyDeadline.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  } else {
+    dates.early = deadlines.early;
+  }
+  
+  // Calculate absentee deadline
+  if (deadlines.absentee.includes("days")) {
+    const days = parseInt(deadlines.absentee.match(/\d+/)?.[0] || "0");
+    const absenteeDeadline = new Date(electionDate);
+    absenteeDeadline.setDate(absenteeDeadline.getDate() - days);
+    dates.absentee = absenteeDeadline.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  } else {
+    dates.absentee = deadlines.absentee;
+  }
+  
+  return dates;
+};
+
 const CheckRegistration = () => {
   const [selectedState, setSelectedState] = useState("");
+  const deadlineDates = getElectionDates(selectedState);
 
   const handleStateSelect = (value: string) => {
     setSelectedState(value);
@@ -191,12 +246,29 @@ const CheckRegistration = () => {
                     </SelectContent>
                   </Select>
                 </div>
+                
+                {selectedState && deadlineDates && (
+                  <div className="mt-6 space-y-4">
+                    <div className="bg-muted/30 p-4 rounded-md">
+                      <h3 className="font-semibold flex items-center mb-2">
+                        <Calendar className="h-4 w-4 mr-2" />
+                        Important Deadlines for {selectedState}
+                      </h3>
+                      <div className="text-sm space-y-2">
+                        <p><span className="font-medium">Next General Election:</span> November 5, 2024</p>
+                        <p><span className="font-medium">Registration Deadline:</span> {deadlineDates.registration}</p>
+                        <p><span className="font-medium">Early Voting:</span> {deadlineDates.early}</p>
+                        <p><span className="font-medium">Absentee Ballot Request:</span> {deadlineDates.absentee}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
             <CardFooter>
               <Button 
                 onClick={goToStateWebsite} 
-                className="w-full bg-civic-skyblue hover:bg-civic-skyblue/90"
+                className="w-full bg-civic-skyblue hover:bg-civic-skyblue/90 text-white"
                 disabled={!selectedState}
               >
                 <ExternalLink className="mr-2 h-4 w-4" />

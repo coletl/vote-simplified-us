@@ -8,7 +8,7 @@ const Footer = () => {
       <div className="civic-container py-8 md:py-12">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="space-y-4">
-            <h3 className="font-bold text-lg">CivicSimplified</h3>
+            <h3 className="font-bold text-lg">CivicSimple</h3>
             <p className="text-sm text-muted-foreground">Making democratic participation accessible and straightforward for everyone.</p>
           </div>
           
@@ -40,7 +40,7 @@ const Footer = () => {
         </div>
         
         <div className="mt-8 pt-8 border-t border-border flex flex-col md:flex-row justify-between items-center">
-          <p className="text-sm text-muted-foreground">© {new Date().getFullYear()} CivicSimplified. All rights reserved.</p>
+          <p className="text-sm text-muted-foreground">© {new Date().getFullYear()} CivicSimple. All rights reserved.</p>
           <div className="flex space-x-4 mt-4 md:mt-0">
             <a href="#" className="text-sm text-muted-foreground hover:text-civic-skyblue transition-colors">Twitter</a>
             <a href="#" className="text-sm text-muted-foreground hover:text-civic-skyblue transition-colors">Facebook</a>

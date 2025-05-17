@@ -1,13 +1,16 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Calendar, ChevronRight, Vote, Search } from "lucide-react";
+import { Calendar, ChevronRight, Vote, Search, Filter } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Layout from '@/components/layout/Layout';
+import AddressLookup from '@/components/elections/AddressLookup';
+import DistrictInfo from '@/components/elections/DistrictInfo';
+import { supabase } from "@/integrations/supabase/client";
 
 // Define race type to include optional isBallotMeasure property
 interface Race {
@@ -26,6 +29,16 @@ interface Election {
   description: string;
   type: "general" | "primary" | "special";
   races: Race[];
+  districts?: string[]; // Districts where this election applies
+}
+
+// Define district data type
+interface DistrictData {
+  state_district: string;
+  congressional_district: string;
+  county: string;
+  municipal: string;
+  school_board: string;
 }
 
 // Mock election data
@@ -41,7 +54,8 @@ const ELECTIONS: Election[] = [
       { id: "101", title: "President of the United States", candidates: 2 },
       { id: "102", title: "U.S. Senate", candidates: 3 },
       { id: "103", title: "U.S. House of Representatives - District 12", candidates: 4 }
-    ]
+    ],
+    districts: ["All"] // Federal elections apply to all districts
   },
   {
     id: "2",
@@ -55,7 +69,8 @@ const ELECTIONS: Election[] = [
       { id: "202", title: "State Senate - District 7", candidates: 2 },
       { id: "203", title: "State Assembly - District 15", candidates: 3 },
       { id: "204", title: "State Supreme Court - Position 3", candidates: 2 }
-    ]
+    ],
+    districts: ["State Legislative District 7", "State Legislative District 15"] // State elections apply to specific state districts
   },
   {
     id: "3",
@@ -69,7 +84,8 @@ const ELECTIONS: Election[] = [
       { id: "302", title: "City Council - At Large", candidates: 5 },
       { id: "303", title: "County Commissioner - District 2", candidates: 2 },
       { id: "304", title: "School Board - Position 1", candidates: 4 }
-    ]
+    ],
+    districts: ["King County", "Seattle", "Seattle School District"] // Local elections apply to specific local districts
   },
   {
     id: "4",
@@ -82,7 +98,8 @@ const ELECTIONS: Election[] = [
       { id: "401", title: "Governor - Primary", candidates: 6 },
       { id: "402", title: "State Senate - District 7 - Primary", candidates: 4 },
       { id: "403", title: "State Assembly - District 15 - Primary", candidates: 5 }
-    ]
+    ],
+    districts: ["State Legislative District 7", "State Legislative District 15"]
   },
   {
     id: "5",
@@ -93,15 +110,16 @@ const ELECTIONS: Election[] = [
     type: "special",
     races: [
       { id: "501", title: "Infrastructure Bond Measure B", candidates: 0, isBallotMeasure: true }
-    ]
+    ],
+    districts: ["King County", "Seattle"]
   }
 ];
 
 const getLevelColor = (level: string) => {
   switch (level) {
     case "federal": return "bg-civic-skyblue text-white";
-    case "state": return "bg-civic-purple text-foreground";
-    case "local": return "bg-civic-blue text-foreground";
+    case "state": return "bg-civic-purple text-white";
+    case "local": return "bg-civic-blue text-white";
     default: return "bg-civic-lightgray text-foreground";
   }
 };
@@ -109,6 +127,62 @@ const getLevelColor = (level: string) => {
 const Elections = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("all");
+  const [userDistricts, setUserDistricts] = useState<DistrictData | null>(null);
+  const [showMyElections, setShowMyElections] = useState(false);
+  
+  // Fetch user districts on component mount
+  useEffect(() => {
+    const fetchUserDistricts = async () => {
+      // First try to get from localStorage
+      const localDistricts = localStorage.getItem('userDistricts');
+      if (localDistricts) {
+        setUserDistricts(JSON.parse(localDistricts));
+      }
+      
+      // Then try to get from database if user is logged in
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data } = await supabase
+          .from('user_districts')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .single();
+          
+        if (data) {
+          const districtData: DistrictData = {
+            state_district: data.state_district || '',
+            congressional_district: data.congressional_district || '',
+            county: data.county || '',
+            municipal: data.municipal || '',
+            school_board: data.school_board || ''
+          };
+          
+          setUserDistricts(districtData);
+          // Update localStorage as well
+          localStorage.setItem('userDistricts', JSON.stringify(districtData));
+        }
+      }
+    };
+    
+    fetchUserDistricts();
+  }, []);
+  
+  const handleDistrictsFound = (districts: DistrictData) => {
+    setUserDistricts(districts);
+  };
+  
+  const isElectionInUserDistrict = (election: Election): boolean => {
+    if (!userDistricts || !election.districts) return false;
+    
+    // Federal elections apply to everyone
+    if (election.level === "federal") return true;
+    
+    // For state and local elections, check if any of the election's districts match user's districts
+    const userDistrictValues = Object.values(userDistricts).filter(Boolean);
+    return election.districts.some(district => 
+      district === "All" || userDistrictValues.includes(district)
+    );
+  };
   
   const filteredElections = ELECTIONS.filter(election => {
     // Filter by search term
@@ -122,7 +196,10 @@ const Elections = () => {
       (activeTab === election.level) ||
       (activeTab === election.type);
     
-    return matchesSearch && matchesTab;
+    // Filter by user's districts if "My Elections" filter is active
+    const matchesUserDistrict = !showMyElections || isElectionInUserDistrict(election);
+    
+    return matchesSearch && matchesTab && matchesUserDistrict;
   });
 
   // Sort elections by date (closest first)
@@ -141,6 +218,37 @@ const Elections = () => {
             </p>
           </div>
           
+          {/* Address Lookup and District Info Section */}
+          {!userDistricts ? (
+            <div className="mb-10">
+              <AddressLookup onDistrictsFound={handleDistrictsFound} />
+            </div>
+          ) : (
+            <div className="mb-10 grid md:grid-cols-2 gap-6">
+              <DistrictInfo districts={userDistricts} />
+              <div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Looking for Different Elections?</CardTitle>
+                    <CardDescription>
+                      Update your location to see elections in a different area.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Button 
+                      onClick={() => setUserDistricts(null)} 
+                      variant="outline" 
+                      className="w-full"
+                    >
+                      Enter a Different Address
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+          
+          {/* Search and Filter Section */}
           <div className="mb-8 flex flex-col sm:flex-row gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -151,13 +259,27 @@ const Elections = () => {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <Button 
-              variant="outline" 
-              className="bg-white"
-              onClick={() => setSearchTerm("")}
-            >
-              Clear
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                variant={showMyElections ? "default" : "outline"} 
+                className={showMyElections ? "bg-civic-skyblue text-white" : "bg-white"}
+                onClick={() => setShowMyElections(!showMyElections)}
+                disabled={!userDistricts}
+              >
+                <Filter className="h-4 w-4 mr-2" />
+                My Elections
+              </Button>
+              <Button 
+                variant="outline" 
+                className="bg-white"
+                onClick={() => {
+                  setSearchTerm("");
+                  setShowMyElections(false);
+                }}
+              >
+                Clear
+              </Button>
+            </div>
           </div>
           
           <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="mb-8">
