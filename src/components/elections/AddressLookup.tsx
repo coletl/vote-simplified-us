@@ -6,13 +6,12 @@ import { MapPin, Search } from "lucide-react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-
-interface AddressFormData {
-  street: string;
-  city: string;
-  state: string;
-  zip: string;
-}
+import {
+  formatAddress,
+  getRepresentativeInfo,
+  extractDistrictInfo,
+  AddressInput
+} from "@/services/googleCivicService";
 
 interface DistrictData {
   state_district: string;
@@ -20,10 +19,16 @@ interface DistrictData {
   county: string;
   municipal: string;
   school_board: string;
+  state?: string;
+  state_lower_district?: string;
 }
 
-const AddressLookup = ({ onDistrictsFound }: { onDistrictsFound: (districts: DistrictData) => void }) => {
-  const [formData, setFormData] = useState<AddressFormData>({
+interface AddressLookupProps {
+  onDistrictsFound: (districts: DistrictData) => void;
+}
+
+const AddressLookup: React.FC<AddressLookupProps> = ({ onDistrictsFound }) => {
+  const [formData, setFormData] = useState<AddressInput>({
     street: '',
     city: '',
     state: '',
@@ -46,40 +51,26 @@ const AddressLookup = ({ onDistrictsFound }: { onDistrictsFound: (districts: Dis
         async (position) => {
           try {
             const { latitude, longitude } = position.coords;
-            const url = `https://geocoding.geo.census.gov/geocoder/geographies/coordinates?x=${longitude}&y=${latitude}&benchmark=Public_AR_Current&vintage=Current_Current&format=json`;
             
-            const response = await fetch(url);
-            const data = await response.json();
+            // First attempt using the Census API
+            const censusUrl = `https://geocoding.geo.census.gov/geocoder/geographies/coordinates?x=${longitude}&y=${latitude}&benchmark=Public_AR_Current&vintage=Current_Current&format=json`;
             
-            if (data.result && data.result.geographies) {
-              const geoData = data.result.geographies;
-              
-              // Extract district information
-              const districts: DistrictData = {
-                state_district: geoData['State Legislative Districts - Upper'] ? 
-                  geoData['State Legislative Districts - Upper'][0].NAME : '',
-                congressional_district: geoData['Congressional Districts'] ? 
-                  geoData['Congressional Districts'][0].NAME : '',
-                county: geoData['Counties'] ? 
-                  geoData['Counties'][0].NAME : '',
-                municipal: geoData['Places'] ? 
-                  geoData['Places'][0].NAME : '',
-                school_board: geoData['School Districts - Unified'] ? 
-                  geoData['School Districts - Unified'][0].NAME : ''
-              };
-              
-              // Store the district information
-              await storeDistrictData(districts);
-              
-              // Notify parent component of the districts found
-              onDistrictsFound(districts);
-              
-              toast({
-                title: "Location Found",
-                description: "We've identified your electoral districts based on your location.",
-              });
+            const censusResponse = await fetch(censusUrl);
+            const censusData = await censusResponse.json();
+            
+            if (censusData.result && censusData.result.geographies) {
+              // Extract address from census data
+              const addressComponents = extractAddressFromCensus(censusData);
+              if (addressComponents) {
+                // Now use this address with Google Civic API
+                await lookupDistrictsWithCivicApi(formatAddress(addressComponents));
+              } else {
+                // Fallback to using coordinates directly with Google Civic API
+                await lookupDistrictsWithCivicApi(`${latitude},${longitude}`);
+              }
             } else {
-              throw new Error("No geographic data found");
+              // Fallback to using coordinates directly
+              await lookupDistrictsWithCivicApi(`${latitude},${longitude}`);
             }
           } catch (error) {
             console.error("Error fetching geolocation data:", error);
@@ -88,7 +79,6 @@ const AddressLookup = ({ onDistrictsFound }: { onDistrictsFound: (districts: Dis
               description: "Unable to determine your electoral districts from your location.",
               variant: "destructive"
             });
-          } finally {
             setLoading(false);
           }
         },
@@ -112,6 +102,28 @@ const AddressLookup = ({ onDistrictsFound }: { onDistrictsFound: (districts: Dis
     }
   };
 
+  const extractAddressFromCensus = (data: any): AddressInput | null => {
+    try {
+      if (data.result && data.result.geographies) {
+        const geoData = data.result.geographies;
+        const stateData = geoData['States'] ? geoData['States'][0] : null;
+        const countyData = geoData['Counties'] ? geoData['Counties'][0] : null;
+        const placeData = geoData['Places'] ? geoData['Places'][0] : null;
+        
+        // Construct partial address from available data
+        return {
+          state: stateData ? stateData.STUSAB : '',
+          city: placeData ? placeData.NAME : '',
+          // We don't have street from census data
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error("Error extracting address from census data:", error);
+      return null;
+    }
+  };
+
   const handleAddressLookup = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -122,35 +134,45 @@ const AddressLookup = ({ onDistrictsFound }: { onDistrictsFound: (districts: Dis
         throw new Error("Please complete the address form");
       }
       
-      // Format address for Census Geocoder
-      const formattedAddress = `${street}, ${city}, ${state} ${zip}`;
-      const encodedAddress = encodeURIComponent(formattedAddress);
-      const url = `https://geocoding.geo.census.gov/geocoder/geographies/address?street=${encodedAddress}&benchmark=Public_AR_Current&vintage=Current_Current&format=json`;
+      // Format address for Google Civic API
+      const formattedAddress = formatAddress(formData);
+      await lookupDistrictsWithCivicApi(formattedAddress);
       
-      const response = await fetch(url);
-      const data = await response.json();
+    } catch (error) {
+      console.error("Error during address lookup:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Unable to determine your electoral districts.",
+        variant: "destructive"
+      });
+      setLoading(false);
+    }
+  };
+
+  const lookupDistrictsWithCivicApi = async (address: string) => {
+    try {
+      // Use Google Civic API to get representative info (which includes divisions)
+      const repInfo = await getRepresentativeInfo(address);
       
-      if (data.result && data.result.addressMatches && data.result.addressMatches.length > 0) {
-        const geoData = data.result.addressMatches[0].geographies;
+      if (repInfo && repInfo.divisions) {
+        // Extract district information from the API response
+        const districtInfo = extractDistrictInfo(repInfo.divisions);
         
-        // Extract district information
+        // Format district data
         const districts: DistrictData = {
-          state_district: geoData['State Legislative Districts - Upper'] ? 
-            geoData['State Legislative Districts - Upper'][0].NAME : '',
-          congressional_district: geoData['Congressional Districts'] ? 
-            geoData['Congressional Districts'][0].NAME : '',
-          county: geoData['Counties'] ? 
-            geoData['Counties'][0].NAME : '',
-          municipal: geoData['Places'] ? 
-            geoData['Places'][0].NAME : '',
-          school_board: geoData['School Districts - Unified'] ? 
-            geoData['School Districts - Unified'][0].NAME : ''
+          state_district: districtInfo.state_district || '',
+          congressional_district: districtInfo.congressional_district || '',
+          county: districtInfo.county || '',
+          municipal: districtInfo.municipal || '',
+          school_board: districtInfo.school_board || '',
+          state: districtInfo.state || '',
+          state_lower_district: districtInfo.state_lower_district || ''
         };
         
-        // Store the district information
+        // Store district information
         await storeDistrictData(districts);
         
-        // Notify parent component of the districts found
+        // Notify parent component
         onDistrictsFound(districts);
         
         toast({
@@ -158,13 +180,13 @@ const AddressLookup = ({ onDistrictsFound }: { onDistrictsFound: (districts: Dis
           description: "We've identified your electoral districts based on your address.",
         });
       } else {
-        throw new Error("Address not found or unable to determine electoral districts");
+        throw new Error("Unable to determine electoral districts from this address");
       }
     } catch (error) {
-      console.error("Error during address lookup:", error);
+      console.error("Error with Civic API lookup:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Unable to determine your electoral districts.",
+        description: "Unable to determine your electoral districts. Please check your address and try again.",
         variant: "destructive"
       });
     } finally {

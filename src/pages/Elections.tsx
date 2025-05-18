@@ -7,30 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Calendar, ChevronRight, Vote, Search, Filter } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
 import Layout from '@/components/layout/Layout';
 import AddressLookup from '@/components/elections/AddressLookup';
 import DistrictInfo from '@/components/elections/DistrictInfo';
+import VoterInfoDisplay from '@/components/elections/VoterInfoDisplay';
 import { supabase } from "@/integrations/supabase/client";
-
-// Define race type to include optional isBallotMeasure property
-interface Race {
-  id: string;
-  title: string;
-  candidates: number;
-  isBallotMeasure?: boolean;
-}
-
-// Define election type
-interface Election {
-  id: string;
-  title: string;
-  date: string;
-  level: "federal" | "state" | "local";
-  description: string;
-  type: "general" | "primary" | "special";
-  races: Race[];
-  districts?: string[]; // Districts where this election applies
-}
+import { getElections, getVoterInfo, formatAddress } from "@/services/googleCivicService";
 
 // Define district data type
 interface DistrictData {
@@ -39,96 +22,20 @@ interface DistrictData {
   county: string;
   municipal: string;
   school_board: string;
+  state?: string;
+  state_lower_district?: string;
 }
-
-// Mock election data
-const ELECTIONS: Election[] = [
-  {
-    id: "1",
-    title: "Federal General Election",
-    date: "November 5, 2024",
-    level: "federal",
-    description: "Presidential, Senate, and House of Representatives elections",
-    type: "general",
-    races: [
-      { id: "101", title: "President of the United States", candidates: 2 },
-      { id: "102", title: "U.S. Senate", candidates: 3 },
-      { id: "103", title: "U.S. House of Representatives - District 12", candidates: 4 }
-    ],
-    districts: ["All"] // Federal elections apply to all districts
-  },
-  {
-    id: "2",
-    title: "State General Election",
-    date: "November 5, 2024",
-    level: "state",
-    description: "State executive offices, legislative chambers, and judicial positions",
-    type: "general",
-    races: [
-      { id: "201", title: "Governor", candidates: 4 },
-      { id: "202", title: "State Senate - District 7", candidates: 2 },
-      { id: "203", title: "State Assembly - District 15", candidates: 3 },
-      { id: "204", title: "State Supreme Court - Position 3", candidates: 2 }
-    ],
-    districts: ["State Legislative District 7", "State Legislative District 15"] // State elections apply to specific state districts
-  },
-  {
-    id: "3",
-    title: "Local General Election",
-    date: "November 5, 2024",
-    level: "local",
-    description: "County and municipal positions, school boards, and local ballot measures",
-    type: "general",
-    races: [
-      { id: "301", title: "Mayor", candidates: 3 },
-      { id: "302", title: "City Council - At Large", candidates: 5 },
-      { id: "303", title: "County Commissioner - District 2", candidates: 2 },
-      { id: "304", title: "School Board - Position 1", candidates: 4 }
-    ],
-    districts: ["King County", "Seattle", "Seattle School District"] // Local elections apply to specific local districts
-  },
-  {
-    id: "4",
-    title: "State Primary Election",
-    date: "August 6, 2024",
-    level: "state",
-    description: "Primary elections for state offices",
-    type: "primary",
-    races: [
-      { id: "401", title: "Governor - Primary", candidates: 6 },
-      { id: "402", title: "State Senate - District 7 - Primary", candidates: 4 },
-      { id: "403", title: "State Assembly - District 15 - Primary", candidates: 5 }
-    ],
-    districts: ["State Legislative District 7", "State Legislative District 15"]
-  },
-  {
-    id: "5",
-    title: "Special Bond Election",
-    date: "September 17, 2024",
-    level: "local",
-    description: "Special election for local infrastructure bond measure",
-    type: "special",
-    races: [
-      { id: "501", title: "Infrastructure Bond Measure B", candidates: 0, isBallotMeasure: true }
-    ],
-    districts: ["King County", "Seattle"]
-  }
-];
-
-const getLevelColor = (level: string) => {
-  switch (level) {
-    case "federal": return "bg-civic-skyblue text-white";
-    case "state": return "bg-civic-purple text-white";
-    case "local": return "bg-civic-blue text-white";
-    default: return "bg-civic-lightgray text-foreground";
-  }
-};
 
 const Elections = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [userDistricts, setUserDistricts] = useState<DistrictData | null>(null);
   const [showMyElections, setShowMyElections] = useState(false);
+  const [loadingElections, setLoadingElections] = useState(false);
+  const [elections, setElections] = useState<any[]>([]);
+  const [selectedElection, setSelectedElection] = useState<string | null>(null);
+  const [voterInfo, setVoterInfo] = useState<any | null>(null);
+  const [loadingVoterInfo, setLoadingVoterInfo] = useState(false);
   
   // Fetch user districts on component mount
   useEffect(() => {
@@ -137,6 +44,7 @@ const Elections = () => {
       const localDistricts = localStorage.getItem('userDistricts');
       if (localDistricts) {
         setUserDistricts(JSON.parse(localDistricts));
+        setShowMyElections(true); // Auto-enable "My Elections" filter when districts are available
       }
       
       // Then try to get from database if user is logged in
@@ -154,10 +62,14 @@ const Elections = () => {
             congressional_district: data.congressional_district || '',
             county: data.county || '',
             municipal: data.municipal || '',
-            school_board: data.school_board || ''
+            school_board: data.school_board || '',
+            state: data.state || '',
+            state_lower_district: data.state_lower_district || ''
           };
           
           setUserDistricts(districtData);
+          setShowMyElections(true); // Auto-enable "My Elections" filter when districts are available
+          
           // Update localStorage as well
           localStorage.setItem('userDistricts', JSON.stringify(districtData));
         }
@@ -167,44 +79,93 @@ const Elections = () => {
     fetchUserDistricts();
   }, []);
   
+  // Fetch available elections when component mounts
+  useEffect(() => {
+    const fetchElections = async () => {
+      setLoadingElections(true);
+      try {
+        const electionsData = await getElections();
+        setElections(electionsData);
+      } catch (error) {
+        console.error("Error fetching elections:", error);
+      } finally {
+        setLoadingElections(false);
+      }
+    };
+    
+    fetchElections();
+  }, []);
+  
+  // Fetch voter info when an election is selected and user has districts
+  useEffect(() => {
+    if (selectedElection && userDistricts) {
+      fetchVoterInfo(selectedElection);
+    }
+  }, [selectedElection, userDistricts]);
+  
   const handleDistrictsFound = (districts: DistrictData) => {
     setUserDistricts(districts);
+    setShowMyElections(true); // Automatically enable "My Elections" filter
+    
+    // If we have elections, try to get voter info for the next election
+    if (elections.length > 0) {
+      // Find the closest upcoming election
+      const today = new Date();
+      const upcomingElections = elections
+        .filter(election => new Date(election.electionDay) >= today)
+        .sort((a, b) => new Date(a.electionDay).getTime() - new Date(b.electionDay).getTime());
+      
+      if (upcomingElections.length > 0) {
+        setSelectedElection(upcomingElections[0].id);
+      }
+    }
   };
   
-  const isElectionInUserDistrict = (election: Election): boolean => {
-    if (!userDistricts || !election.districts) return false;
+  const fetchVoterInfo = async (electionId: string) => {
+    if (!userDistricts) return;
     
-    // Federal elections apply to everyone
-    if (election.level === "federal") return true;
+    setLoadingVoterInfo(true);
+    setVoterInfo(null);
     
-    // For state and local elections, check if any of the election's districts match user's districts
-    const userDistrictValues = Object.values(userDistricts).filter(Boolean);
-    return election.districts.some(district => 
-      district === "All" || userDistrictValues.includes(district)
-    );
+    try {
+      // Construct address from user districts
+      let address = '';
+      if (userDistricts.state) {
+        // If we have detailed address components, use those
+        if (userDistricts.municipal && userDistricts.state) {
+          address = `${userDistricts.municipal}, ${userDistricts.state}`;
+        } else if (userDistricts.county && userDistricts.state) {
+          address = `${userDistricts.county}, ${userDistricts.state}`;
+        } else {
+          address = userDistricts.state;
+        }
+      }
+      
+      if (!address) {
+        throw new Error("Insufficient address information");
+      }
+      
+      const info = await getVoterInfo(address, electionId);
+      setVoterInfo(info);
+    } catch (error) {
+      console.error("Error fetching voter info:", error);
+      setVoterInfo(null);
+    } finally {
+      setLoadingVoterInfo(false);
+    }
   };
   
-  const filteredElections = ELECTIONS.filter(election => {
+  const filteredElections = elections.filter(election => {
     // Filter by search term
     const matchesSearch = searchTerm === "" || 
-      election.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      election.description.toLowerCase().includes(searchTerm.toLowerCase());
+      election.name.toLowerCase().includes(searchTerm.toLowerCase());
     
-    // Filter by tab selection
-    const matchesTab = activeTab === "all" || 
-      (activeTab === "upcoming" && new Date(election.date) > new Date()) ||
-      (activeTab === election.level) ||
-      (activeTab === election.type);
-    
-    // Filter by user's districts if "My Elections" filter is active
-    const matchesUserDistrict = !showMyElections || isElectionInUserDistrict(election);
-    
-    return matchesSearch && matchesTab && matchesUserDistrict;
+    return matchesSearch;
   });
 
   // Sort elections by date (closest first)
   const sortedElections = [...filteredElections].sort((a, b) => {
-    return new Date(a.date).getTime() - new Date(b.date).getTime();
+    return new Date(a.electionDay).getTime() - new Date(b.electionDay).getTime();
   });
 
   return (
@@ -214,7 +175,7 @@ const Elections = () => {
           <div className="text-center mb-10">
             <h1 className="text-3xl font-bold mb-3">Upcoming Elections</h1>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              View all elections you can participate in, based on your location. Click on any election to learn more about the contests and candidates.
+              View all elections you can participate in, based on your location. Find information about polling locations, candidates, and ballot measures.
             </p>
           </div>
           
@@ -259,107 +220,112 @@ const Elections = () => {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <div className="flex gap-2">
-              <Button 
-                variant={showMyElections ? "default" : "outline"} 
-                className={showMyElections ? "bg-civic-skyblue text-white" : "bg-white"}
-                onClick={() => setShowMyElections(!showMyElections)}
-                disabled={!userDistricts}
-              >
-                <Filter className="h-4 w-4 mr-2" />
-                My Elections
-              </Button>
-              <Button 
-                variant="outline" 
-                className="bg-white"
-                onClick={() => {
-                  setSearchTerm("");
-                  setShowMyElections(false);
-                }}
-              >
-                Clear
-              </Button>
-            </div>
+            <Button 
+              variant="outline" 
+              className="bg-white"
+              onClick={() => {
+                setSearchTerm("");
+              }}
+            >
+              Clear
+            </Button>
           </div>
           
-          <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="mb-8">
-            <TabsList className="grid grid-cols-4 sm:grid-cols-7 mb-4">
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
-              <TabsTrigger value="federal">Federal</TabsTrigger>
-              <TabsTrigger value="state">State</TabsTrigger>
-              <TabsTrigger value="local">Local</TabsTrigger>
-              <TabsTrigger value="general">General</TabsTrigger>
-              <TabsTrigger value="primary">Primary</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {/* Elections List */}
+          {loadingElections ? (
+            <div className="text-center py-12">
+              <p>Loading elections...</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {sortedElections.length > 0 ? (
+                <>
+                  <h2 className="text-xl font-bold">All Available Elections</h2>
+                  {sortedElections.map((election) => (
+                    <Card key={election.id} className={`transition-all hover:shadow-md ${selectedElection === election.id ? 'border-civic-skyblue' : ''}`}>
+                      <CardHeader>
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <CardTitle>{election.name}</CardTitle>
+                            <CardDescription className="flex items-center mt-1">
+                              <Calendar className="h-4 w-4 mr-1" />
+                              {new Date(election.electionDay).toLocaleDateString(undefined, { 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                              })}
+                            </CardDescription>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardFooter>
+                        <Button 
+                          variant={selectedElection === election.id ? "default" : "outline"} 
+                          className={`w-full ${selectedElection === election.id ? 'bg-civic-skyblue text-white' : ''}`}
+                          onClick={() => setSelectedElection(election.id)}
+                          disabled={!userDistricts}
+                        >
+                          {selectedElection === election.id ? 'Selected' : 'View Details'}
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                  ))}
+                </>
+              ) : (
+                <div className="text-center py-12 border rounded-lg bg-muted/10">
+                  <Vote className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-lg font-medium mb-2">No Elections Found</h3>
+                  <p className="text-muted-foreground">
+                    No elections match your current filters. Try adjusting your search criteria.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
           
-          <div className="space-y-6">
-            {sortedElections.length > 0 ? (
-              sortedElections.map((election) => (
-                <Card key={election.id} className="transition-all hover:shadow-md">
+          {/* Voter Information Section */}
+          {selectedElection && userDistricts && (
+            <div className="mt-12">
+              <Separator className="mb-8" />
+              <h2 className="text-2xl font-bold mb-6">Your Voter Information</h2>
+              
+              {loadingVoterInfo ? (
+                <div className="text-center py-12">
+                  <p>Loading voter information...</p>
+                </div>
+              ) : voterInfo ? (
+                <VoterInfoDisplay voterInfo={voterInfo} />
+              ) : (
+                <Card>
                   <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <CardTitle>{election.title}</CardTitle>
-                        <CardDescription className="flex items-center mt-1">
-                          <Calendar className="h-4 w-4 mr-1" />
-                          {election.date}
-                        </CardDescription>
-                      </div>
-                      <div className="flex gap-2">
-                        <Badge className={getLevelColor(election.level)}>
-                          {election.level.charAt(0).toUpperCase() + election.level.slice(1)}
-                        </Badge>
-                        <Badge variant="outline">
-                          {election.type.charAt(0).toUpperCase() + election.type.slice(1)}
-                        </Badge>
-                      </div>
-                    </div>
+                    <CardTitle>No Detailed Information Available</CardTitle>
+                    <CardDescription>
+                      We couldn't find specific voter information for your address in this election.
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-muted-foreground mb-4">{election.description}</p>
-                    <div className="space-y-2">
-                      <h4 className="font-semibold text-sm">Contested Races:</h4>
-                      <ul className="space-y-1">
-                        {election.races.slice(0, 3).map((race) => (
-                          <li key={race.id} className="text-sm flex justify-between">
-                            <span>{race.title}</span>
-                            {race.isBallotMeasure ? (
-                              <Badge variant="outline">Ballot Measure</Badge>
-                            ) : (
-                              <span className="text-muted-foreground">{race.candidates} candidates</span>
-                            )}
-                          </li>
-                        ))}
-                        {election.races.length > 3 && (
-                          <li className="text-sm text-muted-foreground">
-                            +{election.races.length - 3} more races
-                          </li>
-                        )}
-                      </ul>
-                    </div>
+                    <p className="text-muted-foreground">
+                      This could be because:
+                    </p>
+                    <ul className="list-disc ml-5 mt-2 text-muted-foreground space-y-1">
+                      <li>The election may not be applicable to your location</li>
+                      <li>Detailed information hasn't been published yet</li>
+                      <li>Your address information may need to be more specific</li>
+                    </ul>
                   </CardContent>
                   <CardFooter>
-                    <Button asChild variant="outline" className="w-full">
-                      <Link to={`/elections/${election.id}`} className="flex justify-between items-center">
-                        <span>View Election Details</span>
-                        <ChevronRight className="h-4 w-4" />
-                      </Link>
+                    <Button 
+                      onClick={() => setUserDistricts(null)} 
+                      variant="outline" 
+                      className="w-full"
+                    >
+                      Try a Different Address
                     </Button>
                   </CardFooter>
                 </Card>
-              ))
-            ) : (
-              <div className="text-center py-12 border rounded-lg bg-muted/10">
-                <Vote className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">No Elections Found</h3>
-                <p className="text-muted-foreground">
-                  No elections match your current filters. Try adjusting your search criteria.
-                </p>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </Layout>

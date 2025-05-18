@@ -4,11 +4,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 
 interface DistrictData {
-  state_district: string;
-  congressional_district: string;
-  county: string;
-  municipal: string;
-  school_board: string;
+  state_district?: string;
+  congressional_district?: string;
+  county?: string;
+  municipal?: string;
+  school_board?: string;
+  state?: string;
+  state_lower_district?: string;
 }
 
 const DistrictInfo = ({ districts }: { districts: DistrictData }) => {
@@ -28,6 +30,15 @@ const DistrictInfo = ({ districts }: { districts: DistrictData }) => {
       </CardHeader>
       <CardContent>
         <ul className="space-y-3">
+          {districts.state && (
+            <li className="flex justify-between items-center">
+              <span className="font-medium">State:</span>
+              <Badge variant="outline" className="ml-2">
+                {districts.state}
+              </Badge>
+            </li>
+          )}
+        
           {districts.congressional_district && (
             <li className="flex justify-between items-center">
               <span className="font-medium">Congressional District:</span>
@@ -39,9 +50,18 @@ const DistrictInfo = ({ districts }: { districts: DistrictData }) => {
           
           {districts.state_district && (
             <li className="flex justify-between items-center">
-              <span className="font-medium">State Legislative District:</span>
+              <span className="font-medium">State Senate District:</span>
               <Badge variant="outline" className="ml-2">
                 {districts.state_district}
+              </Badge>
+            </li>
+          )}
+          
+          {districts.state_lower_district && (
+            <li className="flex justify-between items-center">
+              <span className="font-medium">State House District:</span>
+              <Badge variant="outline" className="ml-2">
+                {districts.state_lower_district}
               </Badge>
             </li>
           )}
